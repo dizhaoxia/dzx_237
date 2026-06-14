@@ -10,6 +10,7 @@ export interface ElectronAPI {
   saveVideo: (buffer: ArrayBuffer, filename: string) => void;
   getSources: () => Promise<Source[]>;
   onLoadImage: (callback: (data: string) => void) => void;
+  onScreenshotCaptured: (callback: (dataUrl: string) => void) => void;
   onStartRecording: (callback: () => void) => void;
   onToggleRecording: (callback: () => void) => void;
   showRecordWindow: () => void;

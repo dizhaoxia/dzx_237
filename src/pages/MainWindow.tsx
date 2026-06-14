@@ -35,32 +35,38 @@ const MainWindow = () => {
     try {
       setError('');
       if (!window.electronAPI?.getSources) {
-        setError('环境不支持');
+        setError('环境不支持录屏');
         return;
       }
 
       const sources = await window.electronAPI.getSources();
-      const primarySource = sources.find((s) => s.id.startsWith('screen:'));
-      if (!primarySource) {
+      const screenSource = sources.find((s) => s.id.startsWith('screen:'));
+      if (!screenSource) {
         setError('未找到屏幕源');
         return;
       }
 
+      const videoConstraints: MediaStreamConstraints['video'] = {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: screenSource.id,
+          maxWidth: 9999,
+          maxHeight: 9999,
+          maxFrameRate: fps,
+        },
+      };
+
+      const audioConstraints: MediaStreamConstraints['audio'] = audioEnabled
+        ? {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+            },
+          }
+        : false;
+
       const constraints: MediaStreamConstraints = {
-        audio: audioEnabled
-          ? {
-              mandatory: {
-                chromeMediaSource: 'desktop',
-              },
-            } as MediaStreamConstraints['audio']
-          : false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: primarySource.id,
-            maxFrameRate: fps,
-          },
-        } as MediaStreamConstraints['video'],
+        video: videoConstraints,
+        audio: audioConstraints,
       };
 
       let stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -69,26 +75,25 @@ const MainWindow = () => {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           try {
-            const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-            const audioCtx = new AudioCtx();
+            const audioCtx = new AudioContext();
             const dest = audioCtx.createMediaStreamDestination();
-            audioCtx.createMediaStreamSource(stream).connect(dest);
-            audioCtx.createMediaStreamSource(micStream).connect(dest);
-            const combinedStream = new MediaStream([
+            const sysSource = audioCtx.createMediaStreamSource(stream);
+            const micSource = audioCtx.createMediaStreamSource(micStream);
+            sysSource.connect(dest);
+            micSource.connect(dest);
+            stream = new MediaStream([
               ...stream.getVideoTracks(),
               ...dest.stream.getAudioTracks(),
             ]);
-            stream = combinedStream;
           } catch {
-            const combinedStream = new MediaStream([
+            stream = new MediaStream([
               ...stream.getVideoTracks(),
               ...stream.getAudioTracks(),
               ...micStream.getAudioTracks(),
             ]);
-            stream = combinedStream;
           }
         } catch {
-          // mic not available, ignore
+          // mic unavailable
         }
       }
 
@@ -106,15 +111,17 @@ const MainWindow = () => {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-        const reader = new FileReader();
-        reader.onload = () => {
-          const buffer = reader.result as ArrayBuffer;
-          if (window.electronAPI?.saveVideo) {
-            window.electronAPI.saveVideo(buffer, `recording-${Date.now()}.webm`);
-          }
-        };
-        reader.readAsArrayBuffer(blob);
+        if (chunksRef.current.length > 0) {
+          const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+          const reader = new FileReader();
+          reader.onload = () => {
+            const buffer = reader.result as ArrayBuffer;
+            if (window.electronAPI?.saveVideo) {
+              window.electronAPI.saveVideo(buffer, `recording-${Date.now()}.webm`);
+            }
+          };
+          reader.readAsArrayBuffer(blob);
+        }
         chunksRef.current = [];
       };
 
@@ -139,6 +146,7 @@ const MainWindow = () => {
     } catch (err) {
       console.error('录屏启动失败:', err);
       setError('录屏启动失败: ' + (err instanceof Error ? err.message : String(err)));
+      setIsRecording(false);
     }
   };
 
@@ -170,23 +178,9 @@ const MainWindow = () => {
     }
   };
 
-  const handleFullScreenshot = async () => {
-    if (window.electronAPI?.getSources) {
-      window.electronAPI.hideMainWindow();
-      setTimeout(async () => {
-        try {
-          const sources = await window.electronAPI.getSources();
-          const screenSource = sources?.find((s) => s.id.startsWith('screen:'));
-          if (screenSource && window.electronAPI?.openEditor) {
-            window.electronAPI.openEditor(screenSource.thumbnail);
-          } else {
-            window.electronAPI?.showMainWindow();
-          }
-        } catch (e) {
-          console.error('全屏截图失败:', e);
-          window.electronAPI?.showMainWindow();
-        }
-      }, 300);
+  const handleFullScreenshot = () => {
+    if (window.electronAPI?.startAreaScreenshot) {
+      window.electronAPI.startAreaScreenshot();
     }
   };
 
@@ -396,15 +390,15 @@ const MainWindow = () => {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600">区域截图</span>
-                <kbd className="px-2 py-0.5 bg-white rounded border border-gray-300 text-gray-500 font-mono">Ctrl+Shift+A</kbd>
+                <kbd className="px-2 py-0.5 bg-white rounded border border-gray-300 text-gray-500 font-mono">⌘⇧A</kbd>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600">全屏截图</span>
-                <kbd className="px-2 py-0.5 bg-white rounded border border-gray-300 text-gray-500 font-mono">Ctrl+Shift+S</kbd>
+                <kbd className="px-2 py-0.5 bg-white rounded border border-gray-300 text-gray-500 font-mono">⌘⇧S</kbd>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600">开始录屏</span>
-                <kbd className="px-2 py-0.5 bg-white rounded border border-gray-300 text-gray-500 font-mono">Ctrl+Shift+R</kbd>
+                <kbd className="px-2 py-0.5 bg-white rounded border border-gray-300 text-gray-500 font-mono">⌘⇧R</kbd>
               </div>
             </div>
           </div>

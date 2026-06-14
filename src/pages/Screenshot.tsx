@@ -25,59 +25,23 @@ const Screenshot = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [screenSize, setScreenSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const captureScreen = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            displaySurface: 'monitor',
-          },
-          audio: false,
-        } as DisplayMediaStreamOptions);
-
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.autoplay = true;
-
-        video.onloadedmetadata = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(video, 0, 0);
-            const img = new Image();
-            img.onload = () => {
-              setScreenImage(img);
-              setScreenSize({ width: img.width, height: img.height });
-            };
-            img.src = canvas.toDataURL('image/png');
-          }
-          stream.getTracks().forEach((track) => track.stop());
+    if (window.electronAPI?.onScreenshotCaptured) {
+      window.electronAPI.onScreenshotCaptured((dataUrl: string) => {
+        const img = new Image();
+        img.onload = () => {
+          setScreenImage(img);
+          setScreenSize({ width: img.width, height: img.height });
+          setLoading(false);
         };
-      } catch (error) {
-        console.error('屏幕捕获失败:', error);
-        try {
-          if (window.electronAPI?.getSources) {
-            const sources = await window.electronAPI.getSources();
-            const screenSource = sources.find((s) => s.id.startsWith('screen:'));
-            if (screenSource) {
-              const img = new Image();
-              img.onload = () => {
-                setScreenImage(img);
-                setScreenSize({ width: img.width, height: img.height });
-              };
-              img.src = screenSource.thumbnail;
-            }
-          }
-        } catch (e) {
-          console.error('获取屏幕源失败:', e);
-        }
-      }
-    };
-
-    captureScreen();
+        img.onerror = () => {
+          setLoading(false);
+        };
+        img.src = dataUrl;
+      });
+    }
   }, []);
 
   const getSelectionRect = useCallback((start: Point, end: Point): Rect => {
@@ -90,8 +54,9 @@ const Screenshot = () => {
   }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (loading) return;
     const point = { x: e.clientX, y: e.clientY };
-    
+
     if (selection && isPointInSelection(point)) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - selection.x, y: e.clientY - selection.y });
@@ -163,16 +128,12 @@ const Screenshot = () => {
         selection.height
       );
       const dataUrl = canvas.toDataURL('image/png');
-      if (window.electronAPI?.closeScreenshotWindow) {
-        window.electronAPI.closeScreenshotWindow(dataUrl);
-      }
+      window.electronAPI?.closeScreenshotWindow(dataUrl);
     }
   };
 
   const cancelScreenshot = () => {
-    if (window.electronAPI?.closeScreenshotWindow) {
-      window.electronAPI.closeScreenshotWindow();
-    }
+    window.electronAPI?.closeScreenshotWindow();
   };
 
   const fullscreenScreenshot = () => {
@@ -184,9 +145,7 @@ const Screenshot = () => {
     if (ctx) {
       ctx.drawImage(screenImage, 0, 0);
       const dataUrl = canvas.toDataURL('image/png');
-      if (window.electronAPI?.closeScreenshotWindow) {
-        window.electronAPI.closeScreenshotWindow(dataUrl);
-      }
+      window.electronAPI?.closeScreenshotWindow(dataUrl);
     }
   };
 
@@ -204,7 +163,7 @@ const Screenshot = () => {
 
   useEffect(() => {
     if (!screenImage || !magnifierCanvasRef.current) return;
-    
+
     const canvas = magnifierCanvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -214,7 +173,7 @@ const Screenshot = () => {
     const sourceSize = magnifierSize / zoom;
 
     ctx.clearRect(0, 0, magnifierSize, magnifierSize);
-    
+
     const sx = mousePos.x - sourceSize / 2;
     const sy = mousePos.y - sourceSize / 2;
 
@@ -249,8 +208,8 @@ const Screenshot = () => {
   }, [mousePos, screenImage]);
 
   return (
-    <div 
-      className="fixed inset-0 w-screen h-screen overflow-hidden cursor-crosshair"
+    <div
+      className="fixed inset-0 w-screen h-screen overflow-hidden cursor-crosshair bg-black/30"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -268,21 +227,21 @@ const Screenshot = () => {
 
       {selection && (
         <>
-          <div 
+          <div
             className="absolute top-0 left-0 bg-black/50"
             style={{
               width: '100%',
               height: selection.y,
             }}
           />
-          <div 
+          <div
             className="absolute bottom-0 left-0 bg-black/50"
             style={{
               width: '100%',
               height: screenSize.height - selection.y - selection.height,
             }}
           />
-          <div 
+          <div
             className="absolute left-0 bg-black/50"
             style={{
               left: 0,
@@ -291,7 +250,7 @@ const Screenshot = () => {
               height: selection.height,
             }}
           />
-          <div 
+          <div
             className="absolute bg-black/50"
             style={{
               right: 0,
@@ -320,11 +279,11 @@ const Screenshot = () => {
             <div className="absolute top-1/2 -right-1 w-3 h-3 bg-white border-2 border-primary-500 rounded-full translate-x-1/2 -translate-y-1/2" />
           </div>
 
-          <div 
+          <div
             className="absolute bg-black/70 text-white px-2 py-1 rounded text-xs font-mono pointer-events-none"
             style={{
               left: selection.x,
-              top: selection.y - 28,
+              top: selection.y > 28 ? selection.y - 28 : selection.y + selection.height + 4,
             }}
           >
             {Math.round(selection.width)} × {Math.round(selection.height)}
@@ -332,7 +291,7 @@ const Screenshot = () => {
         </>
       )}
 
-      {!selection && (
+      {!selection && !loading && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
           <div className="bg-black/60 text-white px-6 py-4 rounded-2xl backdrop-blur-sm">
             <svg className="w-12 h-12 mx-auto mb-2 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,14 +303,23 @@ const Screenshot = () => {
         </div>
       )}
 
-      {showMagnifier && (
+      {loading && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+          <div className="bg-black/60 text-white px-6 py-4 rounded-2xl backdrop-blur-sm">
+            <div className="w-8 h-8 mx-auto mb-2 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <p className="text-sm font-medium">正在捕获屏幕...</p>
+          </div>
+        </div>
+      )}
+
+      {showMagnifier && !loading && (
         <div
           className="absolute pointer-events-none rounded-full border-2 border-white/50 shadow-2xl overflow-hidden"
           style={{
             width: 150,
             height: 150,
-            left: mousePos.x + 20,
-            top: mousePos.y + 20,
+            left: Math.min(mousePos.x + 20, window.innerWidth - 170),
+            top: Math.min(mousePos.y + 20, window.innerHeight - 170),
           }}
         >
           <canvas
@@ -364,7 +332,7 @@ const Screenshot = () => {
       )}
 
       {selection && selection.width > 10 && selection.height > 10 && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-xl rounded-2xl px-4 py-3 shadow-2xl border border-white/10">
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-xl rounded-2xl px-4 py-3 shadow-2xl border border-white/10 z-50">
           <button
             onClick={cancelScreenshot}
             className="flex items-center gap-2 px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
@@ -374,7 +342,7 @@ const Screenshot = () => {
             </svg>
             <span className="text-sm">取消</span>
           </button>
-          
+
           <div className="w-px h-8 bg-white/20" />
 
           <button

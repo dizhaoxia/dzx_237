@@ -41,25 +41,15 @@ let screenshotWindow = null;
 let editorWindow = null;
 let recordWindow = null;
 let tray = null;
+let pendingScreenshotData = null;
 const isDev = process.env.NODE_ENV === 'development';
 const INDEX_PATH = path.join(__dirname, '..', 'dist', 'index.html');
 const DEV_URL = 'http://localhost:5173';
 function createTrayIcon() {
     const size = 22;
-    const canvas = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <defs>
-    <filter id="s" x="-50%" y="-50%" width="200%" height="200%">
-      <feDropShadow dx="0" dy="0" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.3"/>
-    </filter>
-  </defs>
-  <rect x="2" y="2" width="${size - 4}" height="${size - 4}" rx="4" fill="#0ea5e9" filter="url(#s)"/>
-  <rect x="6" y="6" width="${size - 12}" height="${size - 12}" rx="1" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-  <circle cx="${size / 2}" cy="${size / 2}" r="2.8" fill="#ffffff"/>
-</svg>`;
-    const svg = canvas.replace(/\s*\n\s*/g, '');
+    const canvas = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><rect x="2" y="2" width="${size - 4}" height="${size - 4}" rx="4" fill="#0ea5e9"/><rect x="6" y="6" width="${size - 12}" height="${size - 12}" rx="1" fill="none" stroke="#ffffff" stroke-width="1.5"/><circle cx="${size / 2}" cy="${size / 2}" r="2.8" fill="#ffffff"/></svg>`;
     try {
-        const img = electron_1.nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64'));
+        const img = electron_1.nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(canvas).toString('base64'));
         if (!img.isEmpty())
             return img.resize({ width: size, height: size });
     }
@@ -106,10 +96,9 @@ function createMainWindow() {
         mainWindow = null;
     });
 }
-function createScreenshotWindow() {
+function createScreenshotWindow(imageDataUrl) {
     if (screenshotWindow) {
-        screenshotWindow.focus();
-        return;
+        screenshotWindow.close();
     }
     const primaryDisplay = electron_1.screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.bounds;
@@ -125,6 +114,7 @@ function createScreenshotWindow() {
         resizable: false,
         movable: false,
         fullscreen: true,
+        show: false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -134,8 +124,12 @@ function createScreenshotWindow() {
     });
     const screenshotUrl = isDev
         ? `${DEV_URL}#/screenshot`
-        : `file://${path.join(__dirname, '..', 'dist', 'index.html')}#/screenshot`;
+        : `file://${INDEX_PATH}#/screenshot`;
     screenshotWindow.loadURL(screenshotUrl);
+    screenshotWindow.webContents.on('did-finish-load', () => {
+        screenshotWindow?.webContents.send('screenshot-captured', imageDataUrl);
+        screenshotWindow?.show();
+    });
     screenshotWindow.on('closed', () => {
         screenshotWindow = null;
     });
@@ -160,7 +154,7 @@ function createEditorWindow(imageDataUrl) {
     });
     const editorUrl = isDev
         ? `${DEV_URL}#/editor`
-        : `file://${path.join(__dirname, '..', 'dist', 'index.html')}#/editor`;
+        : `file://${INDEX_PATH}#/editor`;
     editorWindow.loadURL(editorUrl);
     if (imageDataUrl) {
         editorWindow.webContents.on('did-finish-load', () => {
@@ -178,8 +172,8 @@ function createRecordWindow() {
         return;
     }
     recordWindow = new electron_1.BrowserWindow({
-        width: 220,
-        height: 50,
+        width: 240,
+        height: 56,
         frame: false,
         transparent: true,
         alwaysOnTop: true,
@@ -196,7 +190,7 @@ function createRecordWindow() {
     });
     const recordUrl = isDev
         ? `${DEV_URL}#/recorder`
-        : `file://${path.join(__dirname, '..', 'dist', 'index.html')}#/recorder`;
+        : `file://${INDEX_PATH}#/recorder`;
     recordWindow.loadURL(recordUrl);
     recordWindow.on('ready-to-show', () => {
         recordWindow?.show();
@@ -273,41 +267,71 @@ function registerShortcuts() {
     electron_1.globalShortcut.register('Escape', () => {
         if (screenshotWindow) {
             screenshotWindow.close();
+            createMainWindow();
         }
     });
 }
-function startScreenshot() {
-    if (mainWindow) {
-        mainWindow.hide();
+async function startScreenshot() {
+    electron_1.BrowserWindow.getAllWindows().forEach((w) => {
+        try {
+            w.hide();
+        }
+        catch { }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+        const primaryDisplay = electron_1.screen.getPrimaryDisplay();
+        const { width, height } = primaryDisplay.bounds;
+        const sources = await electron_1.desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width, height },
+        });
+        const primarySource = sources[0];
+        if (primarySource) {
+            const dataUrl = primarySource.thumbnail.toDataURL();
+            createScreenshotWindow(dataUrl);
+        }
+        else {
+            electron_1.dialog.showErrorBox('截图失败', '无法捕获屏幕内容');
+            createMainWindow();
+        }
     }
-    setTimeout(() => {
-        createScreenshotWindow();
-    }, 300);
+    catch (error) {
+        console.error('截图失败:', error);
+        electron_1.dialog.showErrorBox('截图失败', '无法捕获屏幕内容');
+        createMainWindow();
+    }
 }
 async function captureFullScreen() {
-    if (mainWindow) {
-        mainWindow.hide();
-    }
-    setTimeout(async () => {
+    electron_1.BrowserWindow.getAllWindows().forEach((w) => {
         try {
-            const primaryDisplay = electron_1.screen.getPrimaryDisplay();
-            const { width, height } = primaryDisplay.bounds;
-            const sources = await electron_1.desktopCapturer.getSources({
-                types: ['screen'],
-                thumbnailSize: { width, height },
-            });
-            const primarySource = sources[0];
-            if (primarySource) {
-                const image = primarySource.thumbnail;
-                const dataUrl = image.toDataURL();
-                createEditorWindow(dataUrl);
-            }
+            w.hide();
         }
-        catch (error) {
-            console.error('全屏截图失败:', error);
+        catch { }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+        const primaryDisplay = electron_1.screen.getPrimaryDisplay();
+        const { width, height } = primaryDisplay.bounds;
+        const sources = await electron_1.desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width, height },
+        });
+        const primarySource = sources[0];
+        if (primarySource) {
+            const dataUrl = primarySource.thumbnail.toDataURL();
+            createEditorWindow(dataUrl);
+        }
+        else {
             electron_1.dialog.showErrorBox('截图失败', '无法捕获屏幕内容');
+            createMainWindow();
         }
-    }, 300);
+    }
+    catch (error) {
+        console.error('全屏截图失败:', error);
+        electron_1.dialog.showErrorBox('截图失败', '无法捕获屏幕内容');
+        createMainWindow();
+    }
 }
 electron_1.app.whenReady().then(() => {
     createMainWindow();
@@ -347,7 +371,9 @@ electron_1.ipcMain.on('close-screenshot-window', (_event, imageDataUrl) => {
     if (imageDataUrl) {
         createEditorWindow(imageDataUrl);
     }
-    createMainWindow();
+    else {
+        createMainWindow();
+    }
 });
 electron_1.ipcMain.on('open-editor', (_event, imageDataUrl) => {
     createEditorWindow(imageDataUrl);
@@ -377,9 +403,10 @@ electron_1.ipcMain.on('save-video', async (_event, buffer, filename) => {
     }
 });
 electron_1.ipcMain.handle('get-sources', async () => {
+    const primaryDisplay = electron_1.screen.getPrimaryDisplay();
     const sources = await electron_1.desktopCapturer.getSources({
         types: ['screen', 'window'],
-        thumbnailSize: { width: 320, height: 240 },
+        thumbnailSize: { width: primaryDisplay.bounds.width, height: primaryDisplay.bounds.height },
     });
     return sources.map((s) => ({
         id: s.id,

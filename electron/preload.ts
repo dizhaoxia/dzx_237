@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onLoadImage: (callback: (data: string) => void) => {
     ipcRenderer.on('load-image', (_event, data) => callback(data));
   },
+  onScreenshotCaptured: (callback: (dataUrl: string) => void) => {
+    ipcRenderer.on('screenshot-captured', (_event, dataUrl) => callback(dataUrl));
+  },
   onStartRecording: (callback: () => void) => {
     ipcRenderer.on('start-recording', callback);
   },
