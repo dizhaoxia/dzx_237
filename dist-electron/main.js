@@ -423,6 +423,15 @@ electron_1.ipcMain.on('hide-record-window', () => {
 electron_1.ipcMain.on('start-area-screenshot', () => {
     startScreenshot();
 });
+electron_1.ipcMain.on('stop-recording', () => {
+    if (mainWindow) {
+        mainWindow.webContents.send('toggle-recording');
+    }
+    if (recordWindow) {
+        recordWindow.close();
+    }
+    createMainWindow();
+});
 electron_1.ipcMain.on('close-editor-window', () => {
     editorWindow?.close();
 });

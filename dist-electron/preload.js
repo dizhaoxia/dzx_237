@@ -28,4 +28,5 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     hideRecordWindow: () => electron_1.ipcRenderer.send('hide-record-window'),
     closeEditorWindow: () => electron_1.ipcRenderer.send('close-editor-window'),
     startAreaScreenshot: () => electron_1.ipcRenderer.send('start-area-screenshot'),
+    stopRecording: () => electron_1.ipcRenderer.send('stop-recording'),
 });

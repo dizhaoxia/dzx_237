@@ -31,11 +31,8 @@ const Recorder = () => {
 
   const handleStop = () => {
     setIsRecording(false);
-    if (window.electronAPI?.hideMainWindow) {
-      window.electronAPI.showMainWindow();
-    }
-    if (window.electronAPI?.hideRecordWindow) {
-      window.electronAPI.hideRecordWindow();
+    if (window.electronAPI?.stopRecording) {
+      window.electronAPI.stopRecording();
     }
   };
 

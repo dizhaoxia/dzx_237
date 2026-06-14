@@ -17,6 +17,7 @@ export interface ElectronAPI {
   hideRecordWindow: () => void;
   closeEditorWindow: () => void;
   startAreaScreenshot: () => void;
+  stopRecording: () => void;
 }
 
 export interface Display {

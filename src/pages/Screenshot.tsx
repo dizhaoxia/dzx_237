@@ -332,7 +332,13 @@ const Screenshot = () => {
       )}
 
       {selection && selection.width > 10 && selection.height > 10 && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-xl rounded-2xl px-4 py-3 shadow-2xl border border-white/10 z-50">
+        <div 
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-xl rounded-2xl px-4 py-3 shadow-2xl border border-white/10 z-50"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseMove={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onMouseLeave={(e) => e.stopPropagation()}
+        >
           <button
             onClick={cancelScreenshot}
             className="flex items-center gap-2 px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
