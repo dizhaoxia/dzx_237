@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 
+type RecState = 'recording' | 'paused';
+
 const Recorder = () => {
   const [elapsed, setElapsed] = useState(0);
-  const [isRecording, setIsRecording] = useState(true);
-  const [isPaused, setIsPaused] = useState(false);
+  const [state, setState] = useState<RecState>('recording');
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (isRecording && !isPaused) {
+    if (state === 'recording') {
       timerRef.current = window.setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
@@ -15,7 +16,7 @@ const Recorder = () => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isRecording, isPaused]);
+  }, [state]);
 
   const formatTime = (s: number) => {
     const h = Math.floor(s / 3600);
@@ -26,20 +27,33 @@ const Recorder = () => {
   };
 
   const handlePause = () => {
-    setIsPaused(!isPaused);
+    if (state === 'recording') {
+      setState('paused');
+      if (window.electronAPI?.pauseRecording) {
+        window.electronAPI.pauseRecording();
+      }
+    } else {
+      setState('recording');
+      if (window.electronAPI?.resumeRecording) {
+        window.electronAPI.resumeRecording();
+      }
+    }
   };
 
   const handleStop = () => {
-    setIsRecording(false);
     if (window.electronAPI?.stopRecording) {
       window.electronAPI.stopRecording();
     }
   };
 
+  const statusColor = state === 'recording'
+    ? 'bg-red-500 animate-pulse'
+    : 'bg-yellow-400';
+
   return (
     <div className="w-full h-full flex items-center justify-center px-3 py-1 select-none">
       <div className="flex items-center gap-2 bg-black/80 backdrop-blur-xl rounded-full px-3 py-1.5 border border-white/10 shadow-2xl">
-        <div className={`w-2.5 h-2.5 rounded-full ${isRecording && !isPaused ? 'bg-red-500 animate-pulse' : isPaused ? 'bg-yellow-400' : 'bg-gray-400'}`} />
+        <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`} />
 
         <span className="text-sm font-mono text-white/90 min-w-[52px] text-center">
           {formatTime(elapsed)}
@@ -50,9 +64,9 @@ const Recorder = () => {
         <button
           onClick={handlePause}
           className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-          title={isPaused ? '继续' : '暂停'}
+          title={state === 'paused' ? '继续' : '暂停'}
         >
-          {isPaused ? (
+          {state === 'paused' ? (
             <svg className="w-3.5 h-3.5 text-green-400" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
             </svg>

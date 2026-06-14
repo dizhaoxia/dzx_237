@@ -8,17 +8,23 @@ export interface ElectronAPI {
   openEditor: (imageDataUrl: string) => void;
   saveImage: (dataUrl: string) => void;
   saveVideo: (buffer: ArrayBuffer, filename: string) => void;
+  showSaveVideoDialog: (defaultName?: string) => Promise<{ canceled: boolean; filePath?: string }>;
+  saveVideoToPath: (buffer: ArrayBuffer, filePath: string) => void;
   getSources: () => Promise<Source[]>;
   onLoadImage: (callback: (data: string) => void) => void;
   onScreenshotCaptured: (callback: (dataUrl: string) => void) => void;
   onStartRecording: (callback: () => void) => void;
   onToggleRecording: (callback: () => void) => () => void;
   onForceStopRecording: (callback: () => void) => () => void;
+  onPauseRecording: (callback: () => void) => () => void;
+  onResumeRecording: (callback: () => void) => () => void;
   showRecordWindow: () => void;
   hideRecordWindow: () => void;
   closeEditorWindow: () => void;
   startAreaScreenshot: () => void;
   stopRecording: () => void;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
 }
 
 export interface Display {

@@ -416,6 +416,17 @@ electron_1.ipcMain.on('save-video', (_event, buffer, filename) => {
         }
     });
 });
+electron_1.ipcMain.handle('show-save-video-dialog', async (_event, defaultName) => {
+    const result = await electron_1.dialog.showSaveDialog({
+        title: '保存录制视频',
+        defaultPath: defaultName || `recording-${Date.now()}.webm`,
+        filters: [
+            { name: 'WebM 视频', extensions: ['webm'] },
+            { name: 'MP4 视频', extensions: ['mp4'] },
+        ],
+    });
+    return { canceled: result.canceled, filePath: result.filePath };
+});
 electron_1.ipcMain.handle('get-sources', async () => {
     const primaryDisplay = electron_1.screen.getPrimaryDisplay();
     const sources = await electron_1.desktopCapturer.getSources({
@@ -445,6 +456,36 @@ electron_1.ipcMain.on('stop-recording', () => {
         recordWindow.close();
     }
     createMainWindow();
+});
+electron_1.ipcMain.on('pause-recording-from-ui', () => {
+    if (mainWindow) {
+        mainWindow.webContents.send('pause-recording');
+    }
+});
+electron_1.ipcMain.on('resume-recording-from-ui', () => {
+    if (mainWindow) {
+        mainWindow.webContents.send('resume-recording');
+    }
+});
+electron_1.ipcMain.on('save-video-to-path', async (_event, buffer, filePath) => {
+    try {
+        fs.writeFileSync(filePath, Buffer.from(buffer));
+        electron_1.dialog.showMessageBox({
+            type: 'info',
+            title: '录制完成',
+            message: '视频已保存',
+            detail: filePath,
+            buttons: ['在访达中显示', '确定'],
+            defaultId: 0,
+        }).then((result) => {
+            if (result.response === 0) {
+                electron_1.shell.showItemInFolder(filePath);
+            }
+        });
+    }
+    catch (err) {
+        electron_1.dialog.showErrorBox('保存失败', String(err));
+    }
 });
 electron_1.ipcMain.on('close-editor-window', () => {
     editorWindow?.close();
