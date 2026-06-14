@@ -24,6 +24,7 @@ const MainWindow = () => {
   const segmentStartRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
   const isStoppingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
   const effectiveDurationRef = useRef<number>(0);
 
   const cleanupStream = useCallback(() => {
@@ -44,6 +45,7 @@ const MainWindow = () => {
     currentChunksRef.current = [];
     segmentsRef.current = [];
     isStoppingRef.current = false;
+    pendingSaveRef.current = false;
     effectiveDurationRef.current = 0;
     setRecordingState('idle');
     setRecordingTime(0);
@@ -60,23 +62,6 @@ const MainWindow = () => {
       currentChunksRef.current = [];
     }
   }, []);
-
-  const createAndStartRecorder = useCallback((stream: MediaStream, mimeType: string) => {
-    const recorder = new MediaRecorder(stream, { mimeType });
-    currentChunksRef.current = [];
-    segmentStartRef.current = Date.now();
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) currentChunksRef.current.push(e.data);
-    };
-
-    recorder.onstop = () => {
-      finalizeCurrentSegment();
-    };
-
-    recorder.start(1000);
-    mediaRecorderRef.current = recorder;
-  }, [finalizeCurrentSegment]);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -133,6 +118,29 @@ const MainWindow = () => {
     resetAllState();
   }, [resetAllState]);
 
+  const createAndStartRecorder = useCallback((stream: MediaStream, mimeType: string) => {
+    const recorder = new MediaRecorder(stream, { mimeType });
+    currentChunksRef.current = [];
+    segmentStartRef.current = Date.now();
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) currentChunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      finalizeCurrentSegment();
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        queueMicrotask(() => {
+          concatenateAndSave();
+        });
+      }
+    };
+
+    recorder.start(1000);
+    mediaRecorderRef.current = recorder;
+  }, [finalizeCurrentSegment, concatenateAndSave]);
+
   const pauseRecording = useCallback(() => {
     if (recordingState !== 'recording') return;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -163,6 +171,10 @@ const MainWindow = () => {
     if (isStoppingRef.current) return;
     if (recordingState === 'idle') return;
     isStoppingRef.current = true;
+    pendingSaveRef.current = true;
+
+    stopTimer();
+    cleanupStream();
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
@@ -170,16 +182,21 @@ const MainWindow = () => {
           mediaRecorderRef.current.resume();
         }
         mediaRecorderRef.current.stop();
-      } catch {}
+        return;
+      } catch {
+        pendingSaveRef.current = false;
+      }
+    } else {
+      pendingSaveRef.current = false;
     }
 
-    stopTimer();
-    cleanupStream();
-
-    setTimeout(() => {
+    if (segmentsRef.current.length === 0 && currentChunksRef.current.length > 0) {
+      finalizeCurrentSegment();
+    }
+    queueMicrotask(() => {
       concatenateAndSave();
-    }, 300);
-  }, [recordingState, stopTimer, cleanupStream, concatenateAndSave]);
+    });
+  }, [recordingState, stopTimer, cleanupStream, finalizeCurrentSegment, concatenateAndSave]);
 
   const startRecording = useCallback(async () => {
     if (recordingState !== 'idle') return;

@@ -52,8 +52,8 @@ export class WebGLImageProcessor {
       uniform vec2 u_roiEnd;
 
       void main() {
-        vec2 uv = v_texCoord;
-        vec4 color = texture2D(u_image, uv);
+        vec2 uv = vec2(v_texCoord.x, 1.0 - v_texCoord.y);
+        vec4 color = texture2D(u_image, vec2(uv.x, 1.0 - uv.y));
 
         float inRoiX = step(u_roiStart.x, uv.x) * step(uv.x, u_roiEnd.x);
         float inRoiY = step(u_roiStart.y, uv.y) * step(uv.y, u_roiEnd.y);
@@ -65,7 +65,6 @@ export class WebGLImageProcessor {
           float radius = u_param1;
           vec2 texel = 1.0 / u_textureSize;
           vec4 sum = vec4(0.0);
-          int samples = 0;
           for (int x = -8; x <= 8; x++) {
             for (int y = -8; y <= 8; y++) {
               vec2 offset = vec2(float(x), float(y)) * texel * radius;
@@ -73,8 +72,7 @@ export class WebGLImageProcessor {
               if (sampleUv.x >= 0.0 && sampleUv.x <= 1.0 && sampleUv.y >= 0.0 && sampleUv.y <= 1.0) {
                 float weight = 1.0 - (length(vec2(float(x), float(y))) / 12.0);
                 weight = max(weight, 0.0);
-                sum += texture2D(u_image, sampleUv) * weight;
-                samples++;
+                sum += texture2D(u_image, vec2(sampleUv.x, 1.0 - sampleUv.y)) * weight;
               }
             }
           }
@@ -84,7 +82,7 @@ export class WebGLImageProcessor {
           float blockSize = u_param1;
           vec2 block = blockSize / u_textureSize;
           vec2 mosaicUv = floor(uv / block) * block + block * 0.5;
-          vec4 mosaicColor = texture2D(u_image, mosaicUv);
+          vec4 mosaicColor = texture2D(u_image, vec2(mosaicUv.x, 1.0 - mosaicUv.y));
           gl_FragColor = mix(color, mosaicColor, inRoi);
         } else {
           gl_FragColor = color;
@@ -219,9 +217,9 @@ export class WebGLImageProcessor {
     const uImage = gl.getUniformLocation(this.program, 'u_image');
 
     const rx = roiW < 0 ? 0 : roiX / width;
-    const ry = roiH < 0 ? 0 : 1 - (roiY + (roiH < 0 ? height : roiH)) / height;
+    const ry = roiH < 0 ? 0 : roiY / height;
     const rw = roiW < 0 ? 1 : roiW / width;
-    const rh = roiH < 0 ? 1 : (roiH < 0 ? height : roiH) / height;
+    const rh = roiH < 0 ? 1 : roiH / height;
 
     gl.uniform1i(uEffectType, effectType);
     gl.uniform1f(uParam1, param1);
