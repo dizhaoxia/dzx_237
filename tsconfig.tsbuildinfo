@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/components/icons.tsx","./src/components/imageeditor.tsx","./src/components/mainpanel.tsx","./src/components/screenshotoverlay.tsx","./src/types/global.d.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/pages/editor.tsx","./src/pages/mainwindow.tsx","./src/pages/recorder.tsx","./src/pages/screenshot.tsx","./src/types/electron-api.d.ts"],"version":"5.9.3"}

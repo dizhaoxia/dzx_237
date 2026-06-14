@@ -32,15 +32,11 @@ const MainWindow = () => {
 
   const startRecording = async () => {
     try {
-      const audioConstraints: MediaStreamConstraints['audio'] = audioEnabled
-        ? { mandatory: { chromeMediaSource: 'desktop' } }
-        : false;
-
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           frameRate: fps,
-        } as MediaTrackConstraints,
-        audio: audioConstraints as boolean | MediaTrackConstraints,
+        },
+        audio: audioEnabled,
       });
 
       if (micEnabled) {
