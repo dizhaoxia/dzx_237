@@ -7,6 +7,7 @@ const MainWindow = () => {
   const [micEnabled, setMicEnabled] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [fps, setFps] = useState(30);
+  const [error, setError] = useState<string>('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -32,37 +33,72 @@ const MainWindow = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      setError('');
+      if (!window.electronAPI?.getSources) {
+        setError('环境不支持');
+        return;
+      }
+
+      const sources = await window.electronAPI.getSources();
+      const primarySource = sources.find((s) => s.id.startsWith('screen:'));
+      if (!primarySource) {
+        setError('未找到屏幕源');
+        return;
+      }
+
+      const constraints: MediaStreamConstraints = {
+        audio: audioEnabled
+          ? {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+              },
+            } as MediaStreamConstraints['audio']
+          : false,
         video: {
-          frameRate: fps,
-        },
-        audio: audioEnabled,
-      });
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: primarySource.id,
+            maxFrameRate: fps,
+          },
+        } as MediaStreamConstraints['video'],
+      };
+
+      let stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       if (micEnabled) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const audioCtx = new AudioContext();
-          const dest = audioCtx.createMediaStreamDestination();
-          audioCtx.createMediaStreamSource(stream).connect(dest);
-          audioCtx.createMediaStreamSource(micStream).connect(dest);
-          const combinedStream = new MediaStream([
-            ...stream.getVideoTracks(),
-            ...dest.stream.getAudioTracks(),
-          ]);
-          streamRef.current = combinedStream;
+          try {
+            const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+            const audioCtx = new AudioCtx();
+            const dest = audioCtx.createMediaStreamDestination();
+            audioCtx.createMediaStreamSource(stream).connect(dest);
+            audioCtx.createMediaStreamSource(micStream).connect(dest);
+            const combinedStream = new MediaStream([
+              ...stream.getVideoTracks(),
+              ...dest.stream.getAudioTracks(),
+            ]);
+            stream = combinedStream;
+          } catch {
+            const combinedStream = new MediaStream([
+              ...stream.getVideoTracks(),
+              ...stream.getAudioTracks(),
+              ...micStream.getAudioTracks(),
+            ]);
+            stream = combinedStream;
+          }
         } catch {
-          streamRef.current = stream;
+          // mic not available, ignore
         }
-      } else {
-        streamRef.current = stream;
       }
+
+      streamRef.current = stream;
 
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
         ? 'video/webm;codecs=vp9'
         : 'video/webm';
 
-      const recorder = new MediaRecorder(streamRef.current, { mimeType });
+      const recorder = new MediaRecorder(stream, { mimeType });
       chunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
@@ -82,9 +118,12 @@ const MainWindow = () => {
         chunksRef.current = [];
       };
 
-      stream.getVideoTracks()[0].onended = () => {
-        stopRecording();
-      };
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          stopRecording();
+        };
+      }
 
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
@@ -97,17 +136,22 @@ const MainWindow = () => {
 
       window.electronAPI?.showRecordWindow();
       window.electronAPI?.hideMainWindow();
-    } catch (error) {
-      console.error('录屏启动失败:', error);
+    } catch (err) {
+      console.error('录屏启动失败:', err);
+      setError('录屏启动失败: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
     }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
       streamRef.current = null;
     }
     if (timerRef.current) {
@@ -117,36 +161,48 @@ const MainWindow = () => {
     setIsRecording(false);
     setRecordingTime(0);
     window.electronAPI?.hideRecordWindow();
+    window.electronAPI?.showMainWindow();
   };
 
   const handleAreaScreenshot = () => {
-    window.electronAPI?.hideMainWindow();
-    setTimeout(() => {
-      window.location.hash = '#/screenshot';
-    }, 300);
+    if (window.electronAPI?.startAreaScreenshot) {
+      window.electronAPI.startAreaScreenshot();
+    }
   };
 
   const handleFullScreenshot = async () => {
-    window.electronAPI?.hideMainWindow();
-    setTimeout(async () => {
-      try {
-        const sources = await window.electronAPI?.getSources();
-        const screenSource = sources?.find((s) => s.id.startsWith('screen:'));
-        if (screenSource && window.electronAPI?.openEditor) {
-          window.electronAPI.openEditor(screenSource.thumbnail);
+    if (window.electronAPI?.getSources) {
+      window.electronAPI.hideMainWindow();
+      setTimeout(async () => {
+        try {
+          const sources = await window.electronAPI.getSources();
+          const screenSource = sources?.find((s) => s.id.startsWith('screen:'));
+          if (screenSource && window.electronAPI?.openEditor) {
+            window.electronAPI.openEditor(screenSource.thumbnail);
+          } else {
+            window.electronAPI?.showMainWindow();
+          }
+        } catch (e) {
+          console.error('全屏截图失败:', e);
+          window.electronAPI?.showMainWindow();
         }
-      } catch (error) {
-        console.error('全屏截图失败:', error);
-      }
-    }, 300);
+      }, 300);
+    }
   };
 
   const handleWindowScreenshot = async () => {
     if (window.electronAPI?.getSources) {
-      const sources = await window.electronAPI.getSources();
-      const windowSources = sources.filter((s) => s.id.startsWith('window:'));
-      if (windowSources.length > 0 && window.electronAPI?.openEditor) {
-        window.electronAPI.openEditor(windowSources[0].thumbnail);
+      try {
+        const sources = await window.electronAPI.getSources();
+        const windowSources = sources.filter((s) => s.id.startsWith('window:'));
+        if (windowSources.length > 0 && window.electronAPI?.openEditor) {
+          window.electronAPI.hideMainWindow();
+          setTimeout(() => {
+            window.electronAPI!.openEditor(windowSources[0].thumbnail);
+          }, 300);
+        }
+      } catch (e) {
+        console.error('窗口截图失败:', e);
       }
     }
   };
@@ -160,9 +216,9 @@ const MainWindow = () => {
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-3">
+    <div className="w-full h-full flex items-center justify-center p-2">
       <div className="w-full h-full bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 overflow-hidden flex flex-col">
-        <div className="app-drag h-10 flex items-center justify-between px-4 border-b border-gray-100">
+        <div className="app-drag h-10 flex items-center justify-between px-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -175,6 +231,7 @@ const MainWindow = () => {
             <button
               onClick={handleMinimize}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+              title="最小化到托盘"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -183,6 +240,7 @@ const MainWindow = () => {
             <button
               onClick={handleClose}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+              title="关闭到托盘"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -191,13 +249,20 @@ const MainWindow = () => {
           </div>
         </div>
 
-        <div className="flex-1 p-4 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-4 no-drag" style={{ WebkitOverflowScrolling: 'touch' }}>
+          {error && (
+            <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+              {error}
+              <button onClick={() => setError('')} className="ml-2 text-red-400 hover:text-red-600">×</button>
+            </div>
+          )}
+
           <div className="mb-4">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">截图</h3>
             <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={handleAreaScreenshot}
-                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-gradient-to-b from-blue-50 to-blue-100/50 hover:from-blue-100 hover:to-blue-200/50 border border-blue-200/50 transition-all hover:scale-105 active:scale-95 no-drag"
+                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-gradient-to-b from-blue-50 to-blue-100/50 hover:from-blue-100 hover:to-blue-200/50 border border-blue-200/50 transition-all hover:scale-105 active:scale-95"
               >
                 <div className="w-10 h-10 rounded-lg bg-white shadow-sm flex items-center justify-center">
                   <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -209,7 +274,7 @@ const MainWindow = () => {
 
               <button
                 onClick={handleFullScreenshot}
-                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-gradient-to-b from-green-50 to-green-100/50 hover:from-green-100 hover:to-green-200/50 border border-green-200/50 transition-all hover:scale-105 active:scale-95 no-drag"
+                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-gradient-to-b from-green-50 to-green-100/50 hover:from-green-100 hover:to-green-200/50 border border-green-200/50 transition-all hover:scale-105 active:scale-95"
               >
                 <div className="w-10 h-10 rounded-lg bg-white shadow-sm flex items-center justify-center">
                   <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,7 +286,7 @@ const MainWindow = () => {
 
               <button
                 onClick={handleWindowScreenshot}
-                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-gradient-to-b from-purple-50 to-purple-100/50 hover:from-purple-100 hover:to-purple-200/50 border border-purple-200/50 transition-all hover:scale-105 active:scale-95 no-drag"
+                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-gradient-to-b from-purple-50 to-purple-100/50 hover:from-purple-100 hover:to-purple-200/50 border border-purple-200/50 transition-all hover:scale-105 active:scale-95"
               >
                 <div className="w-10 h-10 rounded-lg bg-white shadow-sm flex items-center justify-center">
                   <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -250,7 +315,7 @@ const MainWindow = () => {
 
               <button
                 onClick={isRecording ? stopRecording : startRecording}
-                className={`w-full py-3 rounded-xl font-semibold text-white transition-all hover:scale-[1.02] active:scale-[0.98] no-drag ${
+                className={`w-full py-3 rounded-xl font-semibold text-white transition-all hover:scale-[1.02] active:scale-[0.98] ${
                   isRecording
                     ? 'bg-gradient-to-r from-red-500 to-red-600 shadow-lg shadow-red-200'
                     : 'bg-gradient-to-r from-red-500 to-orange-500 shadow-lg shadow-orange-200'
@@ -261,13 +326,13 @@ const MainWindow = () => {
 
               <button
                 onClick={() => setShowSettings(!showSettings)}
-                className="w-full mt-2 py-2 text-xs text-gray-500 hover:text-gray-700 flex items-center justify-center gap-1 no-drag"
+                className="w-full mt-2 py-2 text-xs text-gray-500 hover:text-gray-700 flex items-center justify-center gap-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                录制设置
+                {showSettings ? '收起设置' : '录制设置'}
               </button>
             </div>
           </div>
@@ -281,7 +346,7 @@ const MainWindow = () => {
                   <span className="text-sm text-gray-600">系统音频</span>
                   <button
                     onClick={() => setAudioEnabled(!audioEnabled)}
-                    className={`w-11 h-6 rounded-full transition-colors no-drag ${
+                    className={`w-11 h-6 rounded-full transition-colors ${
                       audioEnabled ? 'bg-primary-500' : 'bg-gray-300'
                     }`}
                   >
@@ -297,7 +362,7 @@ const MainWindow = () => {
                   <span className="text-sm text-gray-600">麦克风</span>
                   <button
                     onClick={() => setMicEnabled(!micEnabled)}
-                    className={`w-11 h-6 rounded-full transition-colors no-drag ${
+                    className={`w-11 h-6 rounded-full transition-colors ${
                       micEnabled ? 'bg-primary-500' : 'bg-gray-300'
                     }`}
                   >
@@ -314,7 +379,7 @@ const MainWindow = () => {
                   <select
                     value={fps}
                     onChange={(e) => setFps(Number(e.target.value))}
-                    className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 no-drag"
+                    className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
                     <option value={15}>15 FPS</option>
                     <option value={24}>24 FPS</option>

@@ -14,19 +14,23 @@ const DEV_URL = 'http://localhost:5173';
 
 function createTrayIcon() {
   const size = 22;
-  const img = nativeImage.createEmpty();
   const canvas = `
-    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="2" y="2" width="${size - 4}" height="${size - 4}" rx="3" fill="#0ea5e9" stroke="#fff" stroke-width="1"/>
-      <rect x="5" y="5" width="${size - 10}" height="${size - 10}" rx="1" fill="none" stroke="#fff" stroke-width="1.5"/>
-      <circle cx="${size / 2}" cy="${size / 2}" r="3" fill="#fff"/>
-    </svg>`;
-  const pngData = Buffer.from(canvas.replace(/[\s\n]/g, ''));
+<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <defs>
+    <filter id="s" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="0" stdDeviation="0.5" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="${size - 4}" height="${size - 4}" rx="4" fill="#0ea5e9" filter="url(#s)"/>
+  <rect x="6" y="6" width="${size - 12}" height="${size - 12}" rx="1" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="${size / 2}" cy="${size / 2}" r="2.8" fill="#ffffff"/>
+</svg>`;
+  const svg = canvas.replace(/\s*\n\s*/g, '');
   try {
-    return nativeImage.createFromBuffer(pngData);
-  } catch {
-    return img.resize({ width: size, height: size });
-  }
+    const img = nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64'));
+    if (!img.isEmpty()) return img.resize({ width: size, height: size });
+  } catch {}
+  return nativeImage.createEmpty();
 }
 
 function createMainWindow() {
@@ -38,11 +42,13 @@ function createMainWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 320,
-    height: 460,
+    width: 380,
+    height: 640,
+    minWidth: 380,
+    minHeight: 520,
     frame: false,
     transparent: true,
-    resizable: false,
+    resizable: true,
     alwaysOnTop: true,
     skipTaskbar: false,
     hasShadow: true,
@@ -144,6 +150,7 @@ function createEditorWindow(imageDataUrl?: string) {
 
   editorWindow.on('closed', () => {
     editorWindow = null;
+    createMainWindow();
   });
 }
 
@@ -401,6 +408,10 @@ ipcMain.on('show-record-window', () => {
 
 ipcMain.on('hide-record-window', () => {
   recordWindow?.close();
+});
+
+ipcMain.on('start-area-screenshot', () => {
+  startScreenshot();
 });
 
 ipcMain.on('close-editor-window', () => {
