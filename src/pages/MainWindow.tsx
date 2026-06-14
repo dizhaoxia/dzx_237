@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 const MainWindow = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -12,26 +12,38 @@ const MainWindow = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const isRecordingRef = useRef(false);
+  const isStoppingRef = useRef(false);
 
-  useEffect(() => {
-    if (window.electronAPI?.onToggleRecording) {
-      window.electronAPI.onToggleRecording(() => {
-        if (isRecording) {
-          stopRecording();
-        } else {
-          startRecording();
-        }
-      });
+  const stopRecording = useCallback(() => {
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
     }
-  }, [isRecording]);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
+      streamRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    setRecordingTime(0);
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+    setTimeout(() => {
+      isStoppingRef.current = false;
+    }, 500);
+  }, []);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     try {
       setError('');
       if (!window.electronAPI?.getSources) {
@@ -128,12 +140,15 @@ const MainWindow = () => {
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.onended = () => {
-          stopRecording();
+          if (isRecordingRef.current) {
+            stopRecording();
+          }
         };
       }
 
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
+      isRecordingRef.current = true;
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -146,30 +161,40 @@ const MainWindow = () => {
     } catch (err) {
       console.error('录屏启动失败:', err);
       setError('录屏启动失败: ' + (err instanceof Error ? err.message : String(err)));
+      isRecordingRef.current = false;
       setIsRecording(false);
     }
-  };
+  }, [fps, audioEnabled, micEnabled, stopRecording]);
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        try { track.stop(); } catch {}
+  useEffect(() => {
+    const cleanups: (() => void)[] = [];
+
+    if (window.electronAPI?.onToggleRecording) {
+      const cleanup = window.electronAPI.onToggleRecording(() => {
+        if (isRecordingRef.current) {
+          stopRecording();
+        } else {
+          startRecording();
+        }
       });
-      streamRef.current = null;
+      cleanups.push(cleanup);
     }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+    if (window.electronAPI?.onForceStopRecording) {
+      const cleanup = window.electronAPI.onForceStopRecording(() => {
+        stopRecording();
+      });
+      cleanups.push(cleanup);
     }
-    setIsRecording(false);
-    setRecordingTime(0);
-    window.electronAPI?.hideRecordWindow();
-    window.electronAPI?.showMainWindow();
+
+    return () => {
+      cleanups.forEach((fn) => fn());
+    };
+  }, [startRecording, stopRecording]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleAreaScreenshot = () => {

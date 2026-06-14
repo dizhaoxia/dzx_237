@@ -1,6 +1,14 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, screen, ipcMain, dialog, nativeImage, desktopCapturer } from 'electron';
+import { app, BrowserWindow, Tray, Menu, globalShortcut, screen, ipcMain, dialog, nativeImage, desktopCapturer, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+
+function getSaveDir(): string {
+  const saveDir = path.join(app.getPath('videos'), 'ScreenRecordings');
+  if (!fs.existsSync(saveDir)) {
+    fs.mkdirSync(saveDir, { recursive: true });
+  }
+  return saveDir;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let screenshotWindow: BrowserWindow | null = null;
@@ -400,16 +408,23 @@ ipcMain.on('save-image', async (_event, dataUrl: string) => {
   }
 });
 
-ipcMain.on('save-video', async (_event, buffer: ArrayBuffer, filename: string) => {
-  const result = await dialog.showSaveDialog({
-    title: '保存视频',
-    defaultPath: filename || `recording-${Date.now()}.webm`,
-    filters: [{ name: 'WebM 视频', extensions: ['webm'] }],
-  });
+ipcMain.on('save-video', (_event, buffer: ArrayBuffer, filename: string) => {
+  const saveDir = getSaveDir();
+  const filePath = path.join(saveDir, filename || `recording-${Date.now()}.webm`);
+  fs.writeFileSync(filePath, Buffer.from(buffer));
 
-  if (!result.canceled && result.filePath) {
-    fs.writeFileSync(result.filePath, Buffer.from(buffer));
-  }
+  dialog.showMessageBox({
+    type: 'info',
+    title: '录制完成',
+    message: '视频已保存',
+    detail: filePath,
+    buttons: ['在访达中显示', '确定'],
+    defaultId: 0,
+  }).then((result) => {
+    if (result.response === 0) {
+      shell.showItemInFolder(filePath);
+    }
+  });
 });
 
 ipcMain.handle('get-sources', async () => {
@@ -439,7 +454,7 @@ ipcMain.on('start-area-screenshot', () => {
 
 ipcMain.on('stop-recording', () => {
   if (mainWindow) {
-    mainWindow.webContents.send('toggle-recording');
+    mainWindow.webContents.send('force-stop-recording');
   }
   if (recordWindow) {
     recordWindow.close();

@@ -36,6 +36,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
+function getSaveDir() {
+    const saveDir = path.join(electron_1.app.getPath('videos'), 'ScreenRecordings');
+    if (!fs.existsSync(saveDir)) {
+        fs.mkdirSync(saveDir, { recursive: true });
+    }
+    return saveDir;
+}
 let mainWindow = null;
 let screenshotWindow = null;
 let editorWindow = null;
@@ -392,15 +399,22 @@ electron_1.ipcMain.on('save-image', async (_event, dataUrl) => {
         fs.writeFileSync(result.filePath, data, 'base64');
     }
 });
-electron_1.ipcMain.on('save-video', async (_event, buffer, filename) => {
-    const result = await electron_1.dialog.showSaveDialog({
-        title: '保存视频',
-        defaultPath: filename || `recording-${Date.now()}.webm`,
-        filters: [{ name: 'WebM 视频', extensions: ['webm'] }],
+electron_1.ipcMain.on('save-video', (_event, buffer, filename) => {
+    const saveDir = getSaveDir();
+    const filePath = path.join(saveDir, filename || `recording-${Date.now()}.webm`);
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+    electron_1.dialog.showMessageBox({
+        type: 'info',
+        title: '录制完成',
+        message: '视频已保存',
+        detail: filePath,
+        buttons: ['在访达中显示', '确定'],
+        defaultId: 0,
+    }).then((result) => {
+        if (result.response === 0) {
+            electron_1.shell.showItemInFolder(filePath);
+        }
     });
-    if (!result.canceled && result.filePath) {
-        fs.writeFileSync(result.filePath, Buffer.from(buffer));
-    }
 });
 electron_1.ipcMain.handle('get-sources', async () => {
     const primaryDisplay = electron_1.screen.getPrimaryDisplay();
@@ -425,7 +439,7 @@ electron_1.ipcMain.on('start-area-screenshot', () => {
 });
 electron_1.ipcMain.on('stop-recording', () => {
     if (mainWindow) {
-        mainWindow.webContents.send('toggle-recording');
+        mainWindow.webContents.send('force-stop-recording');
     }
     if (recordWindow) {
         recordWindow.close();

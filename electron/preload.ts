@@ -23,7 +23,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('start-recording', callback);
   },
   onToggleRecording: (callback: () => void) => {
-    ipcRenderer.on('toggle-recording', callback);
+    const handler = (_event: unknown) => callback();
+    ipcRenderer.on('toggle-recording', handler);
+    return () => ipcRenderer.removeListener('toggle-recording', handler);
+  },
+  onForceStopRecording: (callback: () => void) => {
+    const handler = (_event: unknown) => callback();
+    ipcRenderer.on('force-stop-recording', handler);
+    return () => ipcRenderer.removeListener('force-stop-recording', handler);
   },
   showRecordWindow: () => ipcRenderer.send('show-record-window'),
   hideRecordWindow: () => ipcRenderer.send('hide-record-window'),

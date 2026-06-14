@@ -12,7 +12,8 @@ export interface ElectronAPI {
   onLoadImage: (callback: (data: string) => void) => void;
   onScreenshotCaptured: (callback: (dataUrl: string) => void) => void;
   onStartRecording: (callback: () => void) => void;
-  onToggleRecording: (callback: () => void) => void;
+  onToggleRecording: (callback: () => void) => () => void;
+  onForceStopRecording: (callback: () => void) => () => void;
   showRecordWindow: () => void;
   hideRecordWindow: () => void;
   closeEditorWindow: () => void;
